@@ -1,0 +1,553 @@
+#!/usr/bin/env python3
+"""
+健康饮食规划师 - 个性化饮食计划 CLI 工具
+"""
+
+import argparse
+import sqlite3
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple
+
+# 数据目录
+DATA_DIR = Path.home() / ".openclaw" / "data" / "meal-planner"
+DB_PATH = DATA_DIR / "meal_planner.db"
+
+# 基础营养数据库（简化版）
+FOOD_DATABASE = {
+    "主食": {
+        "米饭": {"calories": 116, "protein": 2.6, "carbs": 25.9, "fat": 0.3, "unit": "100g"},
+        "面条": {"calories": 137, "protein": 4.5, "carbs": 25.0, "fat": 2.1, "unit": "100g"},
+        "馒头": {"calories": 223, "protein": 7.0, "carbs": 47.0, "fat": 1.1, "unit": "100g"},
+        "燕麦": {"calories": 389, "protein": 16.9, "carbs": 66.3, "fat": 6.9, "unit": "100g"},
+        "红薯": {"calories": 86, "protein": 1.6, "carbs": 20.1, "fat": 0.1, "unit": "100g"},
+        "玉米": {"calories": 86, "protein": 3.2, "carbs": 19.0, "fat": 1.2, "unit": "100g"},
+        "全麦面包": {"calories": 247, "protein": 13.0, "carbs": 41.0, "fat": 3.4, "unit": "100g"},
+    },
+    "蛋白质": {
+        "鸡胸肉": {"calories": 165, "protein": 31.0, "carbs": 0, "fat": 3.6, "unit": "100g"},
+        "鸡蛋": {"calories": 155, "protein": 13.0, "carbs": 1.1, "fat": 11.0, "unit": "100g"},
+        "牛肉": {"calories": 250, "protein": 26.0, "carbs": 0, "fat": 15.0, "unit": "100g"},
+        "三文鱼": {"calories": 208, "protein": 20.0, "carbs": 0, "fat": 13.0, "unit": "100g"},
+        "豆腐": {"calories": 76, "protein": 8.0, "carbs": 1.9, "fat": 4.8, "unit": "100g"},
+        "牛奶": {"calories": 54, "protein": 3.6, "carbs": 4.8, "fat": 3.0, "unit": "100ml"},
+        "虾仁": {"calories": 85, "protein": 20.0, "carbs": 0, "fat": 0.5, "unit": "100g"},
+    },
+    "蔬菜": {
+        "西兰花": {"calories": 34, "protein": 2.8, "carbs": 7.0, "fat": 0.4, "unit": "100g"},
+        "菠菜": {"calories": 23, "protein": 2.9, "carbs": 3.6, "fat": 0.4, "unit": "100g"},
+        "胡萝卜": {"calories": 41, "protein": 0.9, "carbs": 9.6, "fat": 0.2, "unit": "100g"},
+        "番茄": {"calories": 18, "protein": 0.9, "carbs": 3.9, "fat": 0.2, "unit": "100g"},
+        "黄瓜": {"calories": 15, "protein": 0.7, "carbs": 3.6, "fat": 0.1, "unit": "100g"},
+        "青椒": {"calories": 20, "protein": 0.9, "carbs": 4.6, "fat": 0.2, "unit": "100g"},
+        "生菜": {"calories": 15, "protein": 1.4, "carbs": 2.9, "fat": 0.2, "unit": "100g"},
+        "芹菜": {"calories": 14, "protein": 0.7, "carbs": 3.0, "fat": 0.2, "unit": "100g"},
+    },
+    "水果": {
+        "苹果": {"calories": 52, "protein": 0.3, "carbs": 14.0, "fat": 0.2, "unit": "100g"},
+        "香蕉": {"calories": 89, "protein": 1.1, "carbs": 22.8, "fat": 0.3, "unit": "100g"},
+        "橙子": {"calories": 47, "protein": 0.9, "carbs": 11.8, "fat": 0.1, "unit": "100g"},
+        "蓝莓": {"calories": 57, "protein": 0.7, "carbs": 14.5, "fat": 0.3, "unit": "100g"},
+        "猕猴桃": {"calories": 61, "protein": 1.1, "carbs": 14.7, "fat": 0.5, "unit": "100g"},
+    },
+    "坚果油脂": {
+        "杏仁": {"calories": 579, "protein": 21.0, "carbs": 22.0, "fat": 50.0, "unit": "100g"},
+        "核桃": {"calories": 654, "protein": 15.0, "carbs": 14.0, "fat": 65.0, "unit": "100g"},
+        "橄榄油": {"calories": 884, "protein": 0, "carbs": 0, "fat": 100.0, "unit": "100ml"},
+    }
+}
+
+# 食谱模板
+RECIPE_TEMPLATES = {
+    "早餐": [
+        {"name": "燕麦牛奶粥", "items": [("燕麦", 50), ("牛奶", 200)], "tags": ["高纤维", "低脂"]},
+        {"name": "全麦三明治", "items": [("全麦面包", 100), ("鸡蛋", 50), ("生菜", 30)], "tags": ["高蛋白", "快手"]},
+        {"name": "蒸蛋羹配红薯", "items": [("鸡蛋", 100), ("红薯", 150)], "tags": ["营养均衡"]},
+        {"name": "牛奶燕麦水果碗", "items": [("牛奶", 200), ("燕麦", 40), ("香蕉", 100), ("蓝莓", 50)], "tags": ["抗氧化", "能量"]},
+    ],
+    "午餐": [
+        {"name": "鸡胸肉糙米饭", "items": [("鸡胸肉", 150), ("米饭", 150), ("西兰花", 100), ("胡萝卜", 50)], "tags": ["高蛋白", "健身"]},
+        {"name": "三文鱼蔬菜碗", "items": [("三文鱼", 120), ("米饭", 100), ("菠菜", 80), ("番茄", 50)], "tags": ["优质脂肪", "Omega-3"]},
+        {"name": "牛肉炒面", "items": [("牛肉", 100), ("面条", 150), ("青椒", 50), ("胡萝卜", 50)], "tags": ["能量", "饱腹"]},
+        {"name": "豆腐蔬菜饭", "items": [("豆腐", 150), ("米饭", 120), ("西兰花", 100), ("番茄", 80)], "tags": ["素食", "低脂"]},
+    ],
+    "晚餐": [
+        {"name": "清蒸虾仁配蔬菜", "items": [("虾仁", 150), ("生菜", 100), ("黄瓜", 50), ("番茄", 50)], "tags": ["低卡", "高蛋白"]},
+        {"name": "鸡胸肉沙拉", "items": [("鸡胸肉", 120), ("生菜", 100), ("黄瓜", 80), ("番茄", 50)], "tags": ["减脂", "轻食"]},
+        {"name": "豆腐蔬菜汤", "items": [("豆腐", 150), ("菠菜", 100), ("番茄", 80)], "tags": ["素食", "清淡"]},
+        {"name": "蒸蛋配杂粮", "items": [("鸡蛋", 100), ("玉米", 100), ("西兰花", 80)], "tags": ["易消化", "均衡"]},
+    ],
+    "加餐": [
+        {"name": "水果坚果组合", "items": [("苹果", 150), ("杏仁", 15)], "tags": ["健康零食"]},
+        {"name": "酸奶水果杯", "items": [("牛奶", 150), ("蓝莓", 80), ("猕猴桃", 100)], "tags": ["益生菌", "维生素"]},
+        {"name": "香蕉坚果", "items": [("香蕉", 100), ("核桃", 10)], "tags": ["能量补充"]},
+    ]
+}
+
+def init_db():
+    """初始化数据库"""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 用户档案表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            age INTEGER,
+            gender TEXT,
+            weight REAL,  -- kg
+            height REAL,  -- cm
+            activity_level TEXT,  -- sedentary, light, moderate, active
+            goal TEXT,  -- lose, maintain, gain
+            dietary_restrictions TEXT,  -- JSON array
+            allergies TEXT,  -- JSON array
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 饮食计划表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS meal_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date DATE,
+            meal_type TEXT,  -- breakfast, lunch, dinner, snack
+            recipe_name TEXT,
+            items TEXT,  -- JSON
+            total_calories REAL,
+            total_protein REAL,
+            total_carbs REAL,
+            total_fat REAL,
+            completed BOOLEAN DEFAULT 0
+        )
+    ''')
+    
+    # 购物清单表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shopping_lists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_start DATE,
+            items TEXT,  -- JSON
+            purchased TEXT  -- JSON array of purchased item names
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+def calculate_bmr(weight: float, height: float, age: int, gender: str) -> float:
+    """计算基础代谢率 (Mifflin-St Jeor 公式)"""
+    if gender.lower() == 'male':
+        return 10 * weight + 6.25 * height - 5 * age + 5
+    else:
+        return 10 * weight + 6.25 * height - 5 * age - 161
+
+def calculate_tdee(bmr: float, activity_level: str) -> float:
+    """计算每日总能量消耗"""
+    multipliers = {
+        'sedentary': 1.2,      # 久坐
+        'light': 1.375,        # 轻度活动
+        'moderate': 1.55,      # 中度活动
+        'active': 1.725,       # 高度活动
+        'very_active': 1.9     # 极高活动
+    }
+    return bmr * multipliers.get(activity_level, 1.2)
+
+def get_target_calories(tdee: float, goal: str) -> float:
+    """根据目标调整卡路里"""
+    adjustments = {
+        'lose': -500,      # 减脂
+        'maintain': 0,     # 维持
+        'gain': 500        # 增肌
+    }
+    return tdee + adjustments.get(goal, 0)
+
+def calculate_recipe_nutrition(items: List[Tuple[str, float]]) -> Dict:
+    """计算食谱营养信息"""
+    total = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+    
+    for food_name, amount in items:
+        # 查找食物
+        nutrition = None
+        for category, foods in FOOD_DATABASE.items():
+            if food_name in foods:
+                nutrition = foods[food_name]
+                break
+        
+        if nutrition:
+            ratio = amount / 100  # 转换为比例
+            total["calories"] += nutrition["calories"] * ratio
+            total["protein"] += nutrition["protein"] * ratio
+            total["carbs"] += nutrition["carbs"] * ratio
+            total["fat"] += nutrition["fat"] * ratio
+    
+    return total
+
+def profile_create(args):
+    """创建用户档案"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 计算营养需求
+    bmr = calculate_bmr(args.weight, args.height, args.age, args.gender)
+    tdee = calculate_tdee(bmr, args.activity)
+    target_calories = get_target_calories(tdee, args.goal)
+    
+    # 保存档案
+    cursor.execute('''
+        INSERT INTO user_profiles 
+        (name, age, gender, weight, height, activity_level, goal, dietary_restrictions, allergies)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        args.name, args.age, args.gender, args.weight, args.height,
+        args.activity, args.goal,
+        json.dumps(args.restrictions or []),
+        json.dumps(args.allergies or [])
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"✅ 已创建用户档案: {args.name}")
+    print()
+    print("📊 营养分析:")
+    print(f"   基础代谢率 (BMR): {bmr:.0f} kcal")
+    print(f"   每日总消耗 (TDEE): {tdee:.0f} kcal")
+    print(f"   目标摄入: {target_calories:.0f} kcal")
+    print()
+    print("🎯 目标:", {"lose": "减脂", "maintain": "维持", "gain": "增肌"}.get(args.goal, args.goal))
+
+def profile_show(args):
+    """显示用户档案"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM user_profiles ORDER BY id DESC LIMIT 1')
+    profile = cursor.fetchone()
+    conn.close()
+    
+    if not profile:
+        print("ℹ️  暂无用户档案，请先创建")
+        return
+    
+    _, name, age, gender, weight, height, activity, goal, restrictions, allergies, _ = profile
+    
+    # 计算营养需求
+    bmr = calculate_bmr(weight, height, age, gender)
+    tdee = calculate_tdee(bmr, activity)
+    target_calories = get_target_calories(tdee, goal)
+    
+    print(f"👤 用户档案: {name}")
+    print("=" * 40)
+    print(f"   年龄: {age}岁")
+    print(f"   性别: {'男' if gender == 'male' else '女'}")
+    print(f"   身高: {height}cm")
+    print(f"   体重: {weight}kg")
+    print(f"   活动量: {activity}")
+    print()
+    print("📊 每日营养目标:")
+    print(f"   目标热量: {target_calories:.0f} kcal")
+    print(f"   建议蛋白质: {weight * 1.2:.0f}g - {weight * 2.0:.0f}g")
+    print(f"   建议碳水: {(target_calories * 0.45 / 4):.0f}g - {(target_calories * 0.65 / 4):.0f}g")
+    print(f"   建议脂肪: {(target_calories * 0.2 / 9):.0f}g - {(target_calories * 0.35 / 9):.0f}g")
+
+def generate_daily_plan(target_calories: float, restrictions: List[str]) -> Dict:
+    """生成每日饮食计划"""
+    # 分配三餐热量比例
+    breakfast_cal = target_calories * 0.3
+    lunch_cal = target_calories * 0.4
+    dinner_cal = target_calories * 0.25
+    snack_cal = target_calories * 0.05
+    
+    plan = {}
+    
+    for meal_type, target in [("早餐", breakfast_cal), ("午餐", lunch_cal), 
+                               ("晚餐", dinner_cal), ("加餐", snack_cal)]:
+        key = {"早餐": "breakfast", "午餐": "lunch", "晚餐": "dinner", "加餐": "snack"}[meal_type]
+        recipes = RECIPE_TEMPLATES.get(meal_type, [])
+        
+        # 选择最接近目标的食谱
+        best_recipe = None
+        best_diff = float('inf')
+        
+        for recipe in recipes:
+            nutrition = calculate_recipe_nutrition(recipe["items"])
+            diff = abs(nutrition["calories"] - target)
+            if diff < best_diff:
+                best_diff = diff
+                best_recipe = recipe
+        
+        if best_recipe:
+            nutrition = calculate_recipe_nutrition(best_recipe["items"])
+            plan[key] = {
+                "name": best_recipe["name"],
+                "items": best_recipe["items"],
+                "nutrition": nutrition,
+                "tags": best_recipe.get("tags", [])
+            }
+    
+    return plan
+
+def plan_generate(args):
+    """生成饮食计划"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 获取用户档案
+    cursor.execute('SELECT weight, height, age, gender, activity_level, goal FROM user_profiles ORDER BY id DESC LIMIT 1')
+    profile = cursor.fetchone()
+    
+    if not profile:
+        print("❌ 请先创建用户档案: meal-planner profile-create")
+        conn.close()
+        return
+    
+    weight, height, age, gender, activity, goal = profile
+    
+    # 计算目标卡路里
+    bmr = calculate_bmr(weight, height, age, gender)
+    tdee = calculate_tdee(bmr, activity)
+    target_calories = get_target_calories(tdee, goal)
+    
+    # 生成计划天数
+    days = args.days or 7
+    start_date = datetime.now().date()
+    
+    print(f"📅 生成 {days} 天饮食计划")
+    print(f"🎯 目标热量: {target_calories:.0f} kcal/天")
+    print()
+    
+    for day_offset in range(days):
+        date = start_date + timedelta(days=day_offset)
+        daily_plan = generate_daily_plan(target_calories, [])
+        
+        print(f"📆 {date} ({['周一','周二','周三','周四','周五','周六','周日'][date.weekday()]})")
+        print("-" * 50)
+        
+        daily_total = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+        
+        for meal_key, meal_data in daily_plan.items():
+            meal_name = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "加餐"}[meal_key]
+            nutrition = meal_data["nutrition"]
+            
+            print(f"\n🍽️  {meal_name}: {meal_data['name']}")
+            print(f"   标签: {', '.join(meal_data['tags'])}")
+            print(f"   食材: {', '.join([f'{item[1]}g {item[0]}' for item in meal_data['items']])}")
+            print(f"   热量: {nutrition['calories']:.0f} kcal | 蛋白质: {nutrition['protein']:.1f}g | 碳水: {nutrition['carbs']:.1f}g | 脂肪: {nutrition['fat']:.1f}g")
+            
+            # 累加
+            for k in daily_total:
+                daily_total[k] += nutrition[k]
+            
+            # 保存到数据库
+            cursor.execute('''
+                INSERT INTO meal_plans 
+                (date, meal_type, recipe_name, items, total_calories, total_protein, total_carbs, total_fat)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                date, meal_key, meal_data['name'], json.dumps(meal_data['items']),
+                nutrition['calories'], nutrition['protein'], nutrition['carbs'], nutrition['fat']
+            ))
+        
+        print(f"\n📊 当日总计: {daily_total['calories']:.0f} kcal | 蛋白质: {daily_total['protein']:.1f}g | 碳水: {daily_total['carbs']:.1f}g | 脂肪: {daily_total['fat']:.1f}g")
+        print()
+    
+    conn.commit()
+    conn.close()
+    print(f"✅ 已生成并保存 {days} 天饮食计划")
+
+def plan_show(args):
+    """查看饮食计划"""
+    date_str = args.date if hasattr(args, 'date') and args.date else datetime.now().strftime('%Y-%m-%d')
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT meal_type, recipe_name, items, total_calories, total_protein, total_carbs, total_fat
+        FROM meal_plans WHERE date = ? ORDER BY 
+        CASE meal_type 
+            WHEN 'breakfast' THEN 1 
+            WHEN 'lunch' THEN 2 
+            WHEN 'dinner' THEN 3 
+            WHEN 'snack' THEN 4 
+        END
+    ''', (date_str,))
+    
+    meals = cursor.fetchall()
+    conn.close()
+    
+    if not meals:
+        print(f"ℹ️  {date_str} 暂无饮食计划")
+        return
+    
+    print(f"📅 {date_str} 饮食计划")
+    print("=" * 50)
+    
+    daily_total = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+    
+    for meal_type, recipe_name, items_json, cal, pro, carb, fat in meals:
+        meal_name = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "加餐"}[meal_type]
+        items = json.loads(items_json)
+        
+        print(f"\n🍽️  {meal_name}: {recipe_name}")
+        print(f"   食材: {', '.join([f'{item[1]}g {item[0]}' for item in items])}")
+        print(f"   热量: {cal:.0f} kcal | 蛋白质: {pro:.1f}g | 碳水: {carb:.1f}g | 脂肪: {fat:.1f}g")
+        
+        daily_total["calories"] += cal
+        daily_total["protein"] += pro
+        daily_total["carbs"] += carb
+        daily_total["fat"] += fat
+    
+    print(f"\n📊 当日总计: {daily_total['calories']:.0f} kcal | 蛋白质: {daily_total['protein']:.1f}g | 碳水: {daily_total['carbs']:.1f}g | 脂肪: {daily_total['fat']:.1f}g")
+
+def shopping_list_generate(args):
+    """生成购物清单"""
+    days = args.days if hasattr(args, 'days') else 7
+    start_date = datetime.now().date()
+    end_date = start_date + timedelta(days=days)
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT items FROM meal_plans 
+        WHERE date >= ? AND date < ?
+    ''', (start_date, end_date))
+    
+    meals = cursor.fetchall()
+    
+    if not meals:
+        print("ℹ️  请先生成饮食计划")
+        conn.close()
+        return
+    
+    # 汇总食材
+    shopping_items = {}
+    for (items_json,) in meals:
+        items = json.loads(items_json)
+        for food_name, amount in items:
+            if food_name in shopping_items:
+                shopping_items[food_name] += amount
+            else:
+                shopping_items[food_name] = amount
+    
+    conn.close()
+    
+    print(f"🛒 未来{days}天购物清单")
+    print("=" * 40)
+    
+    # 按类别分组
+    by_category = {}
+    for food_name, amount in shopping_items.items():
+        for category, foods in FOOD_DATABASE.items():
+            if food_name in foods:
+                if category not in by_category:
+                    by_category[category] = []
+                by_category[category].append((food_name, amount))
+                break
+    
+    for category, items in by_category.items():
+        print(f"\n📦 {category}:")
+        for food_name, amount in sorted(items):
+            print(f"   ☐ {food_name}: {amount:.0f}g")
+    
+    print(f"\n📊 共 {len(shopping_items)} 种食材")
+
+def nutrition_query(args):
+    """查询食物营养"""
+    query = args.food.lower()
+    
+    print(f"🔍 查询: {args.food}")
+    print("=" * 40)
+    
+    found = False
+    for category, foods in FOOD_DATABASE.items():
+        for food_name, nutrition in foods.items():
+            if query in food_name.lower():
+                found = True
+                print(f"\n🍎 {food_name} ({category})")
+                print(f"   热量: {nutrition['calories']} kcal/{nutrition['unit']}")
+                print(f"   蛋白质: {nutrition['protein']}g")
+                print(f"   碳水: {nutrition['carbs']}g")
+                print(f"   脂肪: {nutrition['fat']}g")
+    
+    if not found:
+        print(f"❌ 未找到 '{args.food}' 的营养信息")
+        print("\n📋 可用食物:")
+        for category, foods in FOOD_DATABASE.items():
+            print(f"\n{category}: {', '.join(foods.keys())}")
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='meal-planner',
+        description='健康饮食规划师 - 个性化饮食计划工具',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+示例:
+  meal-planner profile-create --name "张三" --age 30 --weight 70 --height 175 --goal lose
+  meal-planner plan-generate --days 7
+  meal-planner plan-show --date 2024-01-15
+  meal-planner shopping-list --days 7
+  meal-planner nutrition --food 鸡胸肉
+        '''
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='可用命令')
+    
+    # 档案管理
+    profile_parser = subparsers.add_parser('profile-create', help='创建用户档案')
+    profile_parser.add_argument('--name', required=True, help='姓名')
+    profile_parser.add_argument('--age', type=int, required=True, help='年龄')
+    profile_parser.add_argument('--gender', choices=['male', 'female'], required=True, help='性别')
+    profile_parser.add_argument('--weight', type=float, required=True, help='体重(kg)')
+    profile_parser.add_argument('--height', type=float, required=True, help='身高(cm)')
+    profile_parser.add_argument('--activity', choices=['sedentary', 'light', 'moderate', 'active', 'very_active'],
+                               default='moderate', help='活动量')
+    profile_parser.add_argument('--goal', choices=['lose', 'maintain', 'gain'], default='maintain', help='目标')
+    profile_parser.add_argument('--restrictions', nargs='+', help='饮食限制')
+    profile_parser.add_argument('--allergies', nargs='+', help='过敏食物')
+    
+    profile_show_parser = subparsers.add_parser('profile-show', help='显示用户档案')
+    
+    # 计划管理
+    plan_gen_parser = subparsers.add_parser('plan-generate', help='生成饮食计划')
+    plan_gen_parser.add_argument('--days', type=int, default=7, help='计划天数')
+    
+    plan_show_parser = subparsers.add_parser('plan-show', help='查看饮食计划')
+    plan_show_parser.add_argument('--date', help='指定日期 (YYYY-MM-DD)')
+    
+    # 购物清单
+    shopping_parser = subparsers.add_parser('shopping-list', help='生成购物清单')
+    shopping_parser.add_argument('--days', type=int, default=7, help='天数')
+    
+    # 营养查询
+    nutrition_parser = subparsers.add_parser('nutrition', help='查询食物营养')
+    nutrition_parser.add_argument('food', help='食物名称')
+    
+    args = parser.parse_args()
+    
+    # 初始化数据库
+    init_db()
+    
+    if args.command == 'profile-create':
+        profile_create(args)
+    elif args.command == 'profile-show':
+        profile_show(args)
+    elif args.command == 'plan-generate':
+        plan_generate(args)
+    elif args.command == 'plan-show':
+        plan_show(args)
+    elif args.command == 'shopping-list':
+        shopping_list_generate(args)
+    elif args.command == 'nutrition':
+        nutrition_query(args)
+    else:
+        parser.print_help()
+
+if __name__ == '__main__':
+    main()
