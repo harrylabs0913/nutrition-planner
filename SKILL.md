@@ -1,7 +1,7 @@
 ---
 name: nutrition-planner
 description: "Personal nutrition and meal planning system with calorie tracking and recipe recommendations"
-version: "1.0.0"
+version: "1.0.1"
 ---
 
 
