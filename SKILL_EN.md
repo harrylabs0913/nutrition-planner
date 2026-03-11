@@ -13,17 +13,10 @@ Meal Planner creates customized meal plans based on your personal profile, dieta
 ## Features
 
 - 👤 **Personal Nutrition Profile**: Calculate nutritional needs based on age, weight, height, and activity level
-- 🍽️ **Smart Recipe Recommendations**: AI-powered suggestions aligned with your goals
+- 🍽️ **Smart Recipe Recommendations**: Personalized suggestions aligned with your goals
 - 📊 **Nutritional Analysis**: Automatic calculation of calories, protein, carbs, and fats per meal
 - 📅 **Weekly/Monthly Planning**: Generate complete meal plans for multiple days
 - 🛒 **Intelligent Shopping Lists**: Auto-generated grocery lists from your meal plan
-
-## Installation
-
-```bash
-# Add to PATH
-ln -s ~/.openclaw/workspace/skills/meal-planner/meal-planner ~/.local/bin/meal-planner
-```
 
 ## Usage
 
@@ -31,7 +24,7 @@ ln -s ~/.openclaw/workspace/skills/meal-planner/meal-planner ~/.local/bin/meal-p
 
 ```bash
 # Basic profile
-meal-planner profile-create \
+${SKILL_DIR}/scripts/nutrition-planner profile-create \
   --name "John" \
   --age 30 \
   --gender male \
@@ -40,7 +33,7 @@ meal-planner profile-create \
   --goal lose
 
 # Complete profile with dietary restrictions and allergies
-meal-planner profile-create \
+${SKILL_DIR}/scripts/nutrition-planner profile-create \
   --name "Jane" \
   --age 25 \
   --gender female \
@@ -74,40 +67,40 @@ meal-planner profile-create \
 
 ```bash
 # Generate 7-day plan (default)
-meal-planner plan-generate
+${SKILL_DIR}/scripts/nutrition-planner plan-generate
 
 # Generate 14-day plan
-meal-planner plan-generate --days 14
+${SKILL_DIR}/scripts/nutrition-planner plan-generate --days 14
 ```
 
 ### View Your Plan
 
 ```bash
 # View today's plan
-meal-planner plan-show
+${SKILL_DIR}/scripts/nutrition-planner plan-show
 
 # View specific date
-meal-planner plan-show --date 2024-01-15
+${SKILL_DIR}/scripts/nutrition-planner plan-show --date 2024-01-15
 ```
 
 ### Shopping Lists
 
 ```bash
 # Generate shopping list for next 7 days
-meal-planner shopping-list
+${SKILL_DIR}/scripts/nutrition-planner shopping-list
 
 # Generate for next 14 days
-meal-planner shopping-list --days 14
+${SKILL_DIR}/scripts/nutrition-planner shopping-list --days 14
 ```
 
 ### Nutritional Information
 
 ```bash
 # Query a specific food
-meal-planner nutrition "chicken breast"
+${SKILL_DIR}/scripts/nutrition-planner nutrition "chicken breast"
 
 # Fuzzy search
-meal-planner nutrition chicken
+${SKILL_DIR}/scripts/nutrition-planner nutrition chicken
 ```
 
 ## Built-in Food Database
@@ -131,8 +124,8 @@ The tool includes nutritional data for common foods across categories:
 
 ## Data Storage
 
-Data is stored in `~/.openclaw/data/meal-planner/`:
-- `meal_planner.db` - SQLite database
+Data is stored in `~/.openclaw/data/nutrition-planner/`:
+- `nutrition_planner.db` - SQLite database
 
 ## Examples
 
@@ -140,7 +133,7 @@ Data is stored in `~/.openclaw/data/meal-planner/`:
 
 ```bash
 # 1. Create your profile
-meal-planner profile-create \
+${SKILL_DIR}/scripts/nutrition-planner profile-create \
   --name "Alex" \
   --age 28 \
   --gender male \
@@ -150,19 +143,19 @@ meal-planner profile-create \
   --goal maintain
 
 # 2. Generate a weekly meal plan
-meal-planner plan-generate
+${SKILL_DIR}/scripts/nutrition-planner plan-generate
 
 # 3. Check today's meals
-meal-planner plan-show
+${SKILL_DIR}/scripts/nutrition-planner plan-show
 
 # 4. Get your shopping list
-meal-planner shopping-list
+${SKILL_DIR}/scripts/nutrition-planner shopping-list
 ```
 
 ### Vegetarian Meal Planning
 
 ```bash
-meal-planner profile-create \
+${SKILL_DIR}/scripts/nutrition-planner profile-create \
   --name "Vegetarian User" \
   --age 30 \
   --gender female \
@@ -173,7 +166,7 @@ meal-planner profile-create \
   --restrictions vegetarian \
   --allergies nuts
 
-meal-planner plan-generate --days 7
+${SKILL_DIR}/scripts/nutrition-planner plan-generate --days 7
 ```
 
 ## Technical Details

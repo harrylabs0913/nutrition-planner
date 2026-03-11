@@ -2,9 +2,9 @@
   "name": "nutrition-planner",
   "version": "1.0.0",
   "description": "Personal nutrition and meal planning system with calorie tracking and recipe recommendations",
-  "main": "meal-planner",
+  "main": "scripts/nutrition-planner",
   "bin": {
-    "nutrition-planner": "meal-planner"
+    "nutrition-planner": "scripts/nutrition-planner"
   },
   "keywords": ["openclaw", "skill", "nutrition", "meal", "diet", "health"],
   "author": "harrylabs0913",
